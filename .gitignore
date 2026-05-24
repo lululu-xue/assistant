@@ -1,0 +1,23 @@
+# Windows / WSL
+*:Zone.Identifier
+~$*
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+.env*.local
+
+# Next.js
+node_modules/
+.next/
+out/
+.vercel/
+*.tsbuildinfo
+next-env.d.ts
+
+# System / Editor
+.DS_Store
+*.log
+.idea/
+.vscode/
