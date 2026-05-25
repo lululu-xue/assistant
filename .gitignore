@@ -16,6 +16,9 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 
+# Sensitive local files
+supabase项目密码.txt
+
 # System / Editor
 .DS_Store
 *.log
