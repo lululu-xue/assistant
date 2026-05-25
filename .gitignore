@@ -18,6 +18,7 @@ next-env.d.ts
 
 # Sensitive local files
 supabase项目密码.txt
+相关步骤/deep seek API码.txt
 
 # System / Editor
 .DS_Store
