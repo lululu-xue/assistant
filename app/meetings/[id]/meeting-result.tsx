@@ -1,49 +1,108 @@
 'use client'
 
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  ListTodo,
-  TrendingUp,
-  FileText,
-} from 'lucide-react'
+import { Globe, User, Users, Bell } from 'lucide-react'
+
+// ── Types ─────────────────────────────────────────────────────────
+
+type Risk = 'low' | 'medium' | 'high'
+
+interface MeetingSummaryItem {
+  title: string
+  owner: string | null
+  time: string | null
+  risk_level: Risk
+}
+
+interface MyTask {
+  project: string | null
+  task: string
+  progress: string | null
+  completed_time: string | null
+  next_milestone: string | null
+  blocker: string | null
+  need_help: string | null
+  risk_level: Risk
+}
+
+interface RelatedTask {
+  task: string
+  owner: string | null
+  time_range: string | null
+  my_part: string | null
+  risk_level: Risk
+}
+
+interface OtherReminder {
+  item: string
+  person: string | null
+  time: string | null
+  importance: Risk
+}
+
+interface Structured {
+  meeting_summary?: MeetingSummaryItem[]
+  my_tasks?: MyTask[]
+  related_to_me?: RelatedTask[]
+  other_reminders?: OtherReminder[]
+}
 
 interface Meeting {
   id: string
   title: string
   tag: string
   meeting_date: string
-  summary: string | null
-  structured: {
-    progress: string[]
-    conclusions: string[]
-    time_nodes: Array<{ text: string; date: string | null }>
-  } | null
+  my_aliases: string | null
+  structured: Structured | null
 }
 
-interface Todo {
-  id: string
-  task: string
-  owner: string | null
-  status: 'open' | 'done'
-  deadline_text: string | null
-  deadline_date: string | null
-  risk_level: 'low' | 'medium' | 'high'
-}
+// ── Shared helpers ────────────────────────────────────────────────
 
-interface Risk {
-  id: string
-  content: string
-  level: 'low' | 'medium' | 'high'
+const riskBorder = {
+  high:   'border-l-4 border-red-400',
+  medium: 'border-l-4 border-amber-300',
+  low:    'border-l-4 border-transparent',
 }
 
 const riskBadge = {
-  high: 'bg-red-100 text-red-700',
+  high:   'bg-red-100 text-red-700',
   medium: 'bg-amber-100 text-amber-700',
-  low: 'bg-green-100 text-green-700',
+  low:    'bg-green-100 text-green-700',
 }
+
 const riskLabel = { high: '高风险', medium: '中风险', low: '低风险' }
+
+function Badge({ level }: { level: Risk }) {
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${riskBadge[level]}`}>
+      {riskLabel[level]}
+    </span>
+  )
+}
+
+// Fixed field — always rendered; shows "—" when value is null/empty
+function F({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div className="flex gap-1.5 text-xs leading-relaxed">
+      <span className="text-gray-400 flex-shrink-0">{label}</span>
+      <span className={value ? 'text-gray-700' : 'text-gray-300'}>{value || '—'}</span>
+    </div>
+  )
+}
+
+// Conditional field — only rendered when value exists
+function CF({ label, value, className }: { label: string; value: string | null | undefined; className?: string }) {
+  if (!value) return null
+  return (
+    <div className={`flex gap-1.5 text-xs leading-relaxed ${className ?? ''}`}>
+      <span className="text-gray-400 flex-shrink-0">{label}</span>
+      <span className="text-gray-700">{value}</span>
+    </div>
+  )
+}
+
+function Empty({ text }: { text: string }) {
+  return <p className="text-sm text-gray-300 py-1">{text}</p>
+}
 
 function Card({
   title,
@@ -65,20 +124,137 @@ function Card({
   )
 }
 
-export default function MeetingResult({
-  meeting,
-  todos,
-  risks,
-}: {
-  meeting: Meeting
-  todos: Todo[]
-  risks: Risk[]
-}) {
-  const structured = meeting.structured ?? {
-    progress: [],
-    conclusions: [],
-    time_nodes: [],
+// ── Section renderers ─────────────────────────────────────────────
+
+function SectionMeetingSummary({ items }: { items: MeetingSummaryItem[] }) {
+  if (!items.length) return <Empty text="本次会议暂无全局大事记录" />
+  return (
+    <div className="space-y-2">
+      {items.map((item, i) => (
+        <div
+          key={i}
+          className={`rounded-xl bg-gray-50 px-4 py-3 ${riskBorder[item.risk_level]}`}
+        >
+          <div className="flex items-start justify-between gap-3 mb-2">
+            <p className="text-sm text-gray-800 leading-snug">{item.title}</p>
+            <Badge level={item.risk_level} />
+          </div>
+          <div className="space-y-0.5">
+            <F label="负责人：" value={item.owner} />
+            <F label="时间：" value={item.time} />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function MyTaskCard({ task }: { task: MyTask }) {
+  return (
+    <div className={`rounded-xl bg-gray-50 px-4 py-3 ${riskBorder[task.risk_level]}`}>
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <p className="text-sm text-gray-800 leading-snug">{task.task}</p>
+        <Badge level={task.risk_level} />
+      </div>
+      <div className="space-y-0.5">
+        <CF label="进度：" value={task.progress} />
+        <CF label="下一节点：" value={task.next_milestone} />
+        <CF label="完成时间：" value={task.completed_time} />
+        <CF label="卡点：" value={task.blocker} className="[&>span]:text-red-500" />
+        <CF label="需谁配合：" value={task.need_help} />
+      </div>
+    </div>
+  )
+}
+
+function SectionMyTasks({ items }: { items: MyTask[] }) {
+  if (!items.length) return <Empty text="本次会议中未识别到属于你的主责事项" />
+
+  // Group by project; null → "未分类项目"
+  const order: string[] = []
+  const groups: Record<string, MyTask[]> = {}
+  for (const task of items) {
+    const key = task.project ?? '未分类项目'
+    if (!groups[key]) {
+      order.push(key)
+      groups[key] = []
+    }
+    groups[key].push(task)
   }
+
+  return (
+    <div className="space-y-5">
+      {order.map((proj) => (
+        <div key={proj}>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+            {proj}
+          </p>
+          <div className="space-y-2">
+            {groups[proj].map((task, i) => (
+              <MyTaskCard key={i} task={task} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function SectionRelatedToMe({ items }: { items: RelatedTask[] }) {
+  if (!items.length) return <Empty text="本次会议中暂无需要你配合的事项" />
+  return (
+    <div className="space-y-2">
+      {items.map((item, i) => (
+        <div
+          key={i}
+          className={`rounded-xl bg-gray-50 px-4 py-3 ${riskBorder[item.risk_level]}`}
+        >
+          <div className="flex items-start justify-between gap-3 mb-2">
+            <p className="text-sm text-gray-800 leading-snug">{item.task}</p>
+            <Badge level={item.risk_level} />
+          </div>
+          <div className="space-y-0.5">
+            <F label="负责人：" value={item.owner} />
+            <F label="时间区间：" value={item.time_range} />
+            <F label="我的职责：" value={item.my_part} />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function SectionOtherReminders({ items }: { items: OtherReminder[] }) {
+  if (!items.length) return <Empty text="暂无其他提醒事项" />
+  return (
+    <div className="space-y-2">
+      {items.map((item, i) => (
+        <div
+          key={i}
+          className={`rounded-xl bg-gray-50 px-4 py-3 ${riskBorder[item.importance]}`}
+        >
+          <div className="flex items-start justify-between gap-3 mb-2">
+            <p className="text-sm text-gray-800 leading-snug">{item.item}</p>
+            <Badge level={item.importance} />
+          </div>
+          <div className="space-y-0.5">
+            <F label="相关人：" value={item.person} />
+            <F label="时间：" value={item.time} />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────
+
+export default function MeetingResult({ meeting }: { meeting: Meeting }) {
+  const s         = meeting.structured   ?? {}
+  const summary   = s.meeting_summary    ?? []
+  const myTasks   = s.my_tasks           ?? []
+  const related   = s.related_to_me      ?? []
+  const reminders = s.other_reminders    ?? []
 
   return (
     <div className="max-w-3xl mx-auto space-y-5">
@@ -87,143 +263,38 @@ export default function MeetingResult({
         <h1 className="text-xl font-semibold text-gray-900">
           {meeting.title || '会议分析结果'}
         </h1>
-        <div className="flex items-center gap-2 mt-1.5">
+        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
           <span className="text-xs px-2 py-0.5 rounded-full bg-[#3370FF]/10 text-[#3370FF]">
             {meeting.tag}
           </span>
           <span className="text-xs text-gray-400">{meeting.meeting_date}</span>
+          {meeting.my_aliases && (
+            <span className="text-xs text-gray-400">
+              · 我的称呼：{meeting.my_aliases}
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Summary */}
-      <Card title="会议总结" icon={<FileText className="w-4 h-4" />}>
-        <p className="text-sm text-gray-700 leading-relaxed">
-          {meeting.summary || '暂无总结'}
-        </p>
+      {/* ① 会议总结（全局） */}
+      <Card title="会议总结（全局）" icon={<Globe className="w-4 h-4" />}>
+        <SectionMeetingSummary items={summary} />
       </Card>
 
-      {/* Progress */}
-      {structured.progress.length > 0 && (
-        <Card title="本周进展" icon={<TrendingUp className="w-4 h-4" />}>
-          <ul className="space-y-2.5">
-            {structured.progress.map((item, i) => (
-              <li key={i} className="flex items-start gap-2.5 text-sm text-gray-700">
-                <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
-                {item}
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
+      {/* ② 我的事项 */}
+      <Card title="我的事项（主责）" icon={<User className="w-4 h-4" />}>
+        <SectionMyTasks items={myTasks} />
+      </Card>
 
-      {/* Conclusions */}
-      {structured.conclusions.length > 0 && (
-        <Card title="会议结论" icon={<CheckCircle2 className="w-4 h-4" />}>
-          <ol className="space-y-2.5">
-            {structured.conclusions.map((item, i) => (
-              <li key={i} className="flex items-start gap-2.5 text-sm text-gray-700">
-                <span
-                  className="w-5 h-5 rounded-full bg-[#3370FF]/10 text-[#3370FF] text-xs
-                             flex items-center justify-center flex-shrink-0 font-medium"
-                >
-                  {i + 1}
-                </span>
-                {item}
-              </li>
-            ))}
-          </ol>
-        </Card>
-      )}
+      {/* ③ 与我相关 */}
+      <Card title="与我相关（配合）" icon={<Users className="w-4 h-4" />}>
+        <SectionRelatedToMe items={related} />
+      </Card>
 
-      {/* Time nodes */}
-      {structured.time_nodes.length > 0 && (
-        <Card title="时间节点" icon={<Clock className="w-4 h-4" />}>
-          <div className="divide-y divide-gray-50">
-            {structured.time_nodes.map((node, i) => (
-              <div
-                key={i}
-                className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0"
-              >
-                <span className="text-sm text-gray-700">{node.text}</span>
-                {node.date && (
-                  <span className="text-xs text-gray-400 tabular-nums">
-                    {node.date}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {/* Todos */}
-      {todos.length > 0 && (
-        <Card
-          title={`待办事项（${todos.length}）`}
-          icon={<ListTodo className="w-4 h-4" />}
-        >
-          <div className="space-y-3">
-            {todos.map((todo) => (
-              <div
-                key={todo.id}
-                className="flex items-start justify-between gap-3 py-2.5
-                           border-b border-gray-50 last:border-0 last:pb-0"
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-800">{todo.task}</p>
-                  <div className="flex items-center gap-3 mt-1">
-                    {todo.owner && (
-                      <span className="text-xs text-gray-400">
-                        @{todo.owner}
-                      </span>
-                    )}
-                    {todo.deadline_text && (
-                      <span className="text-xs text-gray-400">
-                        {todo.deadline_text}
-                        {todo.deadline_date ? ` (${todo.deadline_date})` : ''}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <span
-                  className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${
-                    riskBadge[todo.risk_level]
-                  }`}
-                >
-                  {riskLabel[todo.risk_level]}
-                </span>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {/* Risks */}
-      {risks.length > 0 && (
-        <Card
-          title={`风险项（${risks.length}）`}
-          icon={<AlertTriangle className="w-4 h-4" />}
-        >
-          <div className="space-y-3">
-            {risks.map((risk) => (
-              <div
-                key={risk.id}
-                className="flex items-start justify-between gap-3 py-2.5
-                           border-b border-gray-50 last:border-0 last:pb-0"
-              >
-                <p className="text-sm text-gray-700 flex-1">{risk.content}</p>
-                <span
-                  className={`text-xs px-2 py-0.5 rounded-full flex-shrink-0 ${
-                    riskBadge[risk.level]
-                  }`}
-                >
-                  {riskLabel[risk.level]}
-                </span>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
+      {/* ④ 其他提醒 */}
+      <Card title="其他提醒" icon={<Bell className="w-4 h-4" />}>
+        <SectionOtherReminders items={reminders} />
+      </Card>
     </div>
   )
 }

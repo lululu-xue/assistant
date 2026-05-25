@@ -14,20 +14,11 @@ export default async function MeetingPage({
     data: { user },
   } = await supabase.auth.getUser()
 
-  const [{ data: meeting }, { data: todos }, { data: risks }] =
-    await Promise.all([
-      supabase.from('meetings').select('*').eq('id', id).single(),
-      supabase
-        .from('todos')
-        .select('*')
-        .eq('meeting_id', id)
-        .order('created_at'),
-      supabase
-        .from('risks')
-        .select('*')
-        .eq('meeting_id', id)
-        .order('created_at'),
-    ])
+  const { data: meeting } = await supabase
+    .from('meetings')
+    .select('id, title, tag, meeting_date, my_aliases, structured')
+    .eq('id', id)
+    .single()
 
   if (!meeting) notFound()
 
@@ -35,11 +26,7 @@ export default async function MeetingPage({
     <div className="flex min-h-screen bg-[#F7F8FA]">
       <Sidebar userEmail={user!.email!} />
       <main className="flex-1 px-8 py-8">
-        <MeetingResult
-          meeting={meeting}
-          todos={todos ?? []}
-          risks={risks ?? []}
-        />
+        <MeetingResult meeting={meeting} />
       </main>
     </div>
   )

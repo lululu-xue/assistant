@@ -11,8 +11,9 @@ create table public.meetings (
   tag          text not null default '未分类',
   meeting_date date not null default current_date,
   content      text not null default '',
+  my_aliases   text,
   summary      text,
-  structured   jsonb default '{"progress":[],"conclusions":[],"time_nodes":[]}'::jsonb,
+  structured   jsonb default '{}'::jsonb,
   created_at   timestamptz not null default now()
 );
 alter table public.meetings enable row level security;

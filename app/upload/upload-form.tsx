@@ -160,6 +160,21 @@ export default function UploadForm({
         />
       </div>
 
+      {/* My aliases */}
+      <div>
+        <label className="block text-xs font-medium text-gray-500 mb-1.5">
+          我在本次会议的称呼（选填）
+        </label>
+        <input
+          type="text"
+          name="my_aliases"
+          placeholder="填本名 + 常用称呼，可填多个，用逗号隔开，如：张三、小张、张总、张哥"
+          className="w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm
+                     text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2
+                     focus:ring-[#3370FF]/30 focus:border-[#3370FF]"
+        />
+      </div>
+
       {/* Tag + Date row */}
       <div className="flex gap-4">
         <div className="flex-1">
