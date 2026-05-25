@@ -44,6 +44,7 @@ interface Structured {
   my_tasks?: MyTask[]
   related_to_me?: RelatedTask[]
   other_reminders?: OtherReminder[]
+  _failed?: boolean
 }
 
 interface Meeting {
@@ -255,9 +256,17 @@ export default function MeetingResult({ meeting }: { meeting: Meeting }) {
   const myTasks   = s.my_tasks           ?? []
   const related   = s.related_to_me      ?? []
   const reminders = s.other_reminders    ?? []
+  const failed    = s._failed            ?? false
 
   return (
     <div className="max-w-3xl mx-auto space-y-5">
+      {/* AI 分析失败提示 */}
+      {failed && (
+        <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-700">
+          AI 分析失败，内容已保存。请返回重新上传，或稍后刷新重试。
+        </div>
+      )}
+
       {/* Header */}
       <div>
         <h1 className="text-xl font-semibold text-gray-900">

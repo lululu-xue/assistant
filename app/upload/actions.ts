@@ -77,6 +77,7 @@ export async function uploadMeeting(
         my_tasks:        result.my_tasks,
         related_to_me:   result.related_to_me,
         other_reminders: result.other_reminders,
+        ...(result._failed ? { _failed: true } : {}),
       },
     })
     .eq('id', meeting.id)

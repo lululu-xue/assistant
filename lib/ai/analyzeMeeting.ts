@@ -1,5 +1,7 @@
-// To swap in the real Claude API: replace the function body only.
-// Input/output types and the calling convention must not change.
+// To swap back to stub: comment out the real implementation and uncomment the stub block.
+// The function signature and return type must never change.
+
+import OpenAI from 'openai'
 
 export interface MeetingSummaryItem {
   title: string
@@ -9,7 +11,7 @@ export interface MeetingSummaryItem {
 }
 
 export interface MyTask {
-  project: string | null          // group key; null → "未分类项目"
+  project: string | null
   task: string
   progress: string | null
   completed_time: string | null
@@ -39,148 +41,206 @@ export interface AnalyzeResult {
   my_tasks: MyTask[]
   related_to_me: RelatedTask[]
   other_reminders: OtherReminder[]
+  _failed?: boolean
 }
 
-function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr)
-  d.setDate(d.getDate() + days)
-  return d.toISOString().split('T')[0]
+// ── Prompt ────────────────────────────────────────────────────────
+
+const SYSTEM_PROMPT = `你是一个专业的会议记录分析助手。
+用户会提供一段会议记录，以及用户本人在会议中的称呼列表。
+你需要仔细阅读会议内容，严格按照以下 JSON 结构输出分析结果，不要输出任何额外文字，不要用 Markdown 代码块包裹。
+
+输出结构：
+{
+  "meeting_summary": [          // 全局重点：部门/公司级大事、整体进展、重大风险
+    {
+      "title": "string",        // 事项描述
+      "owner": "string|null",   // 负责人，无则 null
+      "time": "YYYY-MM-DD|null",// 具体日期，无则 null
+      "risk_level": "low|medium|high"
+    }
+  ],
+  "my_tasks": [                 // 用户主责事项（称呼列表中的人名对应的任务）
+    {
+      "project": "string|null", // 所属项目名，无法判断则 null
+      "task": "string",
+      "progress": "string|null",
+      "completed_time": "YYYY-MM-DD|null",
+      "next_milestone": "string|null",
+      "blocker": "string|null",
+      "need_help": "string|null",
+      "risk_level": "low|medium|high"
+    }
+  ],
+  "related_to_me": [            // 其他人负责、但需要用户配合/关注的事项
+    {
+      "task": "string",
+      "owner": "string|null",
+      "time_range": "string|null",
+      "my_part": "string|null", // 用户需要做什么
+      "risk_level": "low|medium|high"
+    }
+  ],
+  "other_reminders": [          // 非项目类提醒：团建、述职、行政通知等
+    {
+      "item": "string",
+      "person": "string|null",
+      "time": "YYYY-MM-DD|null",
+      "importance": "low|medium|high"
+    }
+  ]
 }
 
-function nextWeekday(dateStr: string, target: number): string {
-  const d = new Date(dateStr)
-  const diff = ((target - d.getDay() + 7) % 7) || 7
-  return addDays(dateStr, diff)
+规则：
+1. 日期换算：以 meetingDate 为基准，将"下周五""后天"等相对时间换算成 YYYY-MM-DD 格式。
+2. 称呼归因：myAliases 列出的所有称呼都指同一个人（用户本人）。凡会议中提到这些称呼承担的任务，归入 my_tasks。
+3. 项目分组：my_tasks 中每条任务必须填写 project 字段（所属项目名）；若无法从会议内容判断，填 null。
+4. 分类原则：my_tasks = 用户主责；related_to_me = 别人负责但用户需配合；other_reminders = 非项目提醒；meeting_summary = 全局重点。
+5. 字段为空时一律填 null，不要填空字符串。
+6. 严格输出合法 JSON，不含注释，不含 Markdown 包裹。`
+
+function buildUserMessage(
+  content: string,
+  meetingDate: string,
+  myAliases: string
+): string {
+  return `会议日期：${meetingDate}
+我的称呼：${myAliases || '（未提供）'}
+
+会议内容：
+${content}`
 }
+
+// ── Validation ────────────────────────────────────────────────────
+
+function emptyResult(): AnalyzeResult {
+  return {
+    meeting_summary: [],
+    my_tasks: [],
+    related_to_me: [],
+    other_reminders: [],
+    _failed: true,
+  }
+}
+
+const RISK_VALUES = new Set(['low', 'medium', 'high'])
+
+function toRisk(v: unknown): 'low' | 'medium' | 'high' {
+  return RISK_VALUES.has(v as string) ? (v as 'low' | 'medium' | 'high') : 'medium'
+}
+
+function str(v: unknown): string | null {
+  return typeof v === 'string' && v.trim() !== '' ? v.trim() : null
+}
+
+function validateResult(raw: unknown): AnalyzeResult {
+  if (typeof raw !== 'object' || raw === null) throw new Error('not an object')
+
+  const r = raw as Record<string, unknown>
+
+  const ensureArray = (key: string) => {
+    if (!Array.isArray(r[key])) throw new Error(`${key} is not an array`)
+    return r[key] as unknown[]
+  }
+
+  const meeting_summary: MeetingSummaryItem[] = ensureArray('meeting_summary').map((x) => {
+    const item = x as Record<string, unknown>
+    if (!str(item.title)) throw new Error('meeting_summary item missing title')
+    return {
+      title: str(item.title)!,
+      owner: str(item.owner),
+      time: str(item.time),
+      risk_level: toRisk(item.risk_level),
+    }
+  })
+
+  const my_tasks: MyTask[] = ensureArray('my_tasks').map((x) => {
+    const item = x as Record<string, unknown>
+    if (!str(item.task)) throw new Error('my_tasks item missing task')
+    return {
+      project: str(item.project),
+      task: str(item.task)!,
+      progress: str(item.progress),
+      completed_time: str(item.completed_time),
+      next_milestone: str(item.next_milestone),
+      blocker: str(item.blocker),
+      need_help: str(item.need_help),
+      risk_level: toRisk(item.risk_level),
+    }
+  })
+
+  const related_to_me: RelatedTask[] = ensureArray('related_to_me').map((x) => {
+    const item = x as Record<string, unknown>
+    if (!str(item.task)) throw new Error('related_to_me item missing task')
+    return {
+      task: str(item.task)!,
+      owner: str(item.owner),
+      time_range: str(item.time_range),
+      my_part: str(item.my_part),
+      risk_level: toRisk(item.risk_level),
+    }
+  })
+
+  const other_reminders: OtherReminder[] = ensureArray('other_reminders').map((x) => {
+    const item = x as Record<string, unknown>
+    if (!str(item.item)) throw new Error('other_reminders item missing item')
+    return {
+      item: str(item.item)!,
+      person: str(item.person),
+      time: str(item.time),
+      importance: toRisk(item.importance),
+    }
+  })
+
+  return { meeting_summary, my_tasks, related_to_me, other_reminders }
+}
+
+// ── API call ──────────────────────────────────────────────────────
+
+const client = new OpenAI({
+  apiKey: process.env.DEEPSEEK_API_KEY ?? '',
+  baseURL: 'https://api.deepseek.com',
+})
+
+async function callOnce(
+  content: string,
+  meetingDate: string,
+  myAliases: string
+): Promise<AnalyzeResult> {
+  const completion = await client.chat.completions.create({
+    model: 'deepseek-chat',
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: buildUserMessage(content, meetingDate, myAliases) },
+    ],
+    temperature: 0.2,
+  })
+
+  const text = completion.choices[0]?.message?.content ?? ''
+  const parsed: unknown = JSON.parse(text)
+  return validateResult(parsed)
+}
+
+// ── Public function ───────────────────────────────────────────────
 
 export async function analyzeMeeting(
-  _content: string,
+  content: string,
   meetingDate: string,
-  _myAliases: string   // reserved — passed to real AI for alias-based attribution
+  myAliases: string
 ): Promise<AnalyzeResult> {
-  // STUB — replace body with real Claude API call when ANTHROPIC_API_KEY is set
-  await new Promise((r) => setTimeout(r, 1200))
+  // First attempt
+  try {
+    return await callOnce(content, meetingDate, myAliases)
+  } catch (err) {
+    console.error('[analyzeMeeting] first attempt failed:', err)
+  }
 
-  const thisFriday = nextWeekday(meetingDate, 5)
-  const nextMonday = addDays(thisFriday, 3)
-  const inTwoDays  = addDays(meetingDate, 2)
-
-  return {
-    meeting_summary: [
-      {
-        title: '支付功能前后端联调已完成，下周正式进入测试阶段',
-        owner: null,
-        time: nextMonday,
-        risk_level: 'low',
-      },
-      {
-        title: '测试资源尚未落实，若本周五前未确认将导致测试计划整体延期',
-        owner: '张三',
-        time: thisFriday,
-        risk_level: 'high',
-      },
-      {
-        title: 'API 接口文档需在本周五前完成更新，否则影响第三方对接',
-        owner: '李四',
-        time: thisFriday,
-        risk_level: 'medium',
-      },
-      {
-        title: '第三方支付 SDK 接口时间节点尚未与外部团队对齐',
-        owner: null,
-        time: inTwoDays,
-        risk_level: 'high',
-      },
-    ],
-
-    my_tasks: [
-      // ── 支付项目 ──────────────────────────────────────────────
-      {
-        project: '支付项目',
-        task: '确认测试资源和测试人员安排',
-        progress: '已发邮件至测试负责人，待回复',
-        completed_time: null,
-        next_milestone: `本周五（${thisFriday}）前完成确认`,
-        blocker: '测试团队负责人本周一至三出差，响应较慢',
-        need_help: '需王总协调，推动测试团队优先响应',
-        risk_level: 'high',
-      },
-      {
-        project: '支付项目',
-        task: '编写支付功能测试用例',
-        progress: '已完成核心支付流程用例约 30%',
-        completed_time: null,
-        next_milestone: `下周一（${nextMonday}）前提交完整用例`,
-        blocker: null,
-        need_help: null,
-        risk_level: 'medium',
-      },
-
-      // ── 登录优化项目 ──────────────────────────────────────────
-      {
-        project: '登录优化项目',
-        task: '登录页前端改版',
-        progress: '设计稿已确认，开发完成 80%',
-        completed_time: null,
-        next_milestone: `本周五（${thisFriday}）完成自测并提测`,
-        blocker: null,
-        need_help: null,
-        risk_level: 'low',
-      },
-      {
-        project: '登录优化项目',
-        task: '图形验证码接入',
-        progress: '第三方 SDK 已集成，联调中',
-        completed_time: null,
-        next_milestone: `下周一（${nextMonday}）前完成联调`,
-        blocker: '第三方 SDK 文档有歧义，需向对方确认一个参数含义',
-        need_help: null,
-        risk_level: 'medium',
-      },
-
-      // ── 未分类（project = null）────────────────────────────────
-      {
-        project: null,
-        task: '提交本季度个人复盘文档',
-        progress: null,
-        completed_time: null,
-        next_milestone: `后天（${inTwoDays}）前提交`,
-        blocker: null,
-        need_help: null,
-        risk_level: 'low',
-      },
-    ],
-
-    related_to_me: [
-      {
-        task: '更新支付接口 API 文档',
-        owner: '李四',
-        time_range: `本周五（${thisFriday}）前`,
-        my_part: '提供本次接口变更清单和字段说明，供李四同步更新',
-        risk_level: 'medium',
-      },
-      {
-        task: '与第三方支付 API 团队对接，确认接口时间节点',
-        owner: null,
-        time_range: `后天（${inTwoDays}）前`,
-        my_part: '参与接口对齐会议，确认我方接口是否满足对方要求',
-        risk_level: 'high',
-      },
-    ],
-
-    other_reminders: [
-      {
-        item: '下周一全体月度进展会议，需提前准备支付模块进展 PPT',
-        person: '全员',
-        time: nextMonday,
-        importance: 'medium',
-      },
-      {
-        item: '季度绩效自评填写截止，HR 已二次提醒',
-        person: 'HR',
-        time: inTwoDays,
-        importance: 'high',
-      },
-    ],
+  // One retry
+  try {
+    return await callOnce(content, meetingDate, myAliases)
+  } catch (err) {
+    console.error('[analyzeMeeting] retry failed, returning empty result:', err)
+    return emptyResult()
   }
 }
