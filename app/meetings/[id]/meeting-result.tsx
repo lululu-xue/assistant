@@ -81,22 +81,11 @@ function Badge({ level }: { level: Risk }) {
 }
 
 // Fixed field — always rendered; shows "—" when value is null/empty
-function F({ label, value }: { label: string; value: string | null | undefined }) {
-  return (
-    <div className="flex gap-1.5 text-xs leading-relaxed">
-      <span className="text-gray-400 flex-shrink-0">{label}</span>
-      <span className={value ? 'text-gray-700' : 'text-gray-300'}>{value || '—'}</span>
-    </div>
-  )
-}
-
-// Conditional field — only rendered when value exists
-function CF({ label, value, className }: { label: string; value: string | null | undefined; className?: string }) {
-  if (!value) return null
+function F({ label, value, className }: { label: string; value: string | null | undefined; className?: string }) {
   return (
     <div className={`flex gap-1.5 text-xs leading-relaxed ${className ?? ''}`}>
       <span className="text-gray-400 flex-shrink-0">{label}</span>
-      <span className="text-gray-700">{value}</span>
+      <span className={value ? 'text-gray-700' : 'text-gray-300'}>{value || '—'}</span>
     </div>
   )
 }
@@ -158,11 +147,11 @@ function MyTaskCard({ task }: { task: MyTask }) {
         <Badge level={task.risk_level} />
       </div>
       <div className="space-y-0.5">
-        <CF label="进度：" value={task.progress} />
-        <CF label="下一节点：" value={task.next_milestone} />
-        <CF label="完成时间：" value={task.completed_time} />
-        <CF label="卡点：" value={task.blocker} className="[&>span]:text-red-500" />
-        <CF label="需谁配合：" value={task.need_help} />
+        <F label="进度：" value={task.progress} />
+        <F label="完成时间：" value={task.completed_time} />
+        <F label="下一节点：" value={task.next_milestone} />
+        <F label="卡点：" value={task.blocker} className="[&>span]:text-red-500" />
+        <F label="需谁配合：" value={task.need_help} />
       </div>
     </div>
   )

@@ -97,7 +97,18 @@ const SYSTEM_PROMPT = `你是一个专业的会议记录分析助手。
 3. 项目分组：my_tasks 中每条任务必须填写 project 字段（所属项目名）；若无法从会议内容判断，填 null。
 4. 分类原则：my_tasks = 用户主责；related_to_me = 别人负责但用户需配合；other_reminders = 非项目提醒；meeting_summary = 全局重点。
 5. 字段为空时一律填 null，不要填空字符串。
-6. 严格输出合法 JSON，不含注释，不含 Markdown 包裹。`
+6. 严格输出合法 JSON，不含注释，不含 Markdown 包裹。
+7. my_tasks 每条任务，请尽量从会议内容中提取 progress / completed_time / next_milestone / blocker / need_help，确实没有相关信息才填 null，不要轻易留空。
+8. related_to_me 的准入门槛：只有当事项中明确出现"我的称呼"或"我负责的项目名"，或会议内容明确要求"我"参与/配合时，才可以放入 related_to_me。
+   - 禁止替我编造 my_part：若会议未说明我需要做什么，my_part 填 null，绝不自行推断。
+   - 纯属其他项目内部、全程未提到我或我的项目的事项，归入 meeting_summary（作为其他项目动态），不得放入 related_to_me。
+   - 反例（不应进 related_to_me）："A 项目要求 B 与 C 对接工作计划"——全程未提到我，应进 meeting_summary。
+9. meeting_summary 与 other_reminders 的边界：
+   - 凡业务/项目相关的制度规定、共性要求、管理红线（如"图纸时间原则""新项目须与总工办协调""立项材料严禁签字作假"），一律归入 meeting_summary，不得放入 other_reminders。
+   - other_reminders 只放与业务/项目完全无关的纯行政杂事，例如：团建、述职、绩效考核、报销通知。
+   - 反例（不应进 other_reminders）："立项材料严禁签字作假"→ 进 meeting_summary。
+10. 不得遗漏与我相关的事项：凡事项描述中出现"我的称呼"或"我负责的项目名"，必须提取，按主责判断放入 my_tasks 或 related_to_me，不可归入 meeting_summary 了事。
+    - 正例：一条跨部门讨论同时涉及"我的项目"与其他项目 → 必须出现在 my_tasks 或 related_to_me，不能只放进 meeting_summary 而漏掉。`
 
 function buildUserMessage(
   content: string,
