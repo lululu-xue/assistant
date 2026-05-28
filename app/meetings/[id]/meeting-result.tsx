@@ -1,13 +1,13 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { Globe, User, Users, Bell, Pencil, Trash2, ArrowRightLeft, Plus } from 'lucide-react'
+import { Globe, User, Users, Bell, Building2, Pencil, Trash2, ArrowRightLeft, Plus } from 'lucide-react'
 import { updateStructured } from './actions'
 
 // ── Types ──────────────────────────────────────────────────────────
 
 type Risk = 'low' | 'medium' | 'high'
-type SectionKey = 'meeting_summary' | 'my_tasks' | 'related_to_me' | 'other_reminders'
+type SectionKey = 'meeting_summary' | 'my_tasks' | 'related_to_me' | 'other_reminders' | 'other_projects'
 
 interface MeetingSummaryItem {
   title: string
@@ -42,13 +42,22 @@ interface OtherReminder {
   importance: Risk
 }
 
-type AnyItem = MeetingSummaryItem | MyTask | RelatedTask | OtherReminder
+interface OtherProject {
+  project: string | null
+  item: string
+  owner: string | null
+  time: string | null
+  risk_level: Risk
+}
+
+type AnyItem = MeetingSummaryItem | MyTask | RelatedTask | OtherReminder | OtherProject
 
 interface FullStructured {
   meeting_summary: MeetingSummaryItem[]
   my_tasks: MyTask[]
   related_to_me: RelatedTask[]
   other_reminders: OtherReminder[]
+  other_projects: OtherProject[]
   _failed?: boolean
 }
 
@@ -65,16 +74,18 @@ interface Meeting {
 
 const SECTION_LABELS: Record<SectionKey, string> = {
   meeting_summary: '会议总结',
-  my_tasks: '我的事项',
-  related_to_me: '与我相关',
+  my_tasks:        '我的事项',
+  related_to_me:   '与我相关',
   other_reminders: '其他提醒',
+  other_projects:  '其他项目',
 }
 
 const OTHER_SECTIONS: Record<SectionKey, SectionKey[]> = {
-  meeting_summary: ['my_tasks', 'related_to_me', 'other_reminders'],
-  my_tasks: ['meeting_summary', 'related_to_me', 'other_reminders'],
-  related_to_me: ['meeting_summary', 'my_tasks', 'other_reminders'],
-  other_reminders: ['meeting_summary', 'my_tasks', 'related_to_me'],
+  meeting_summary: ['my_tasks', 'related_to_me', 'other_projects', 'other_reminders'],
+  my_tasks:        ['meeting_summary', 'related_to_me', 'other_projects', 'other_reminders'],
+  related_to_me:   ['meeting_summary', 'my_tasks', 'other_projects', 'other_reminders'],
+  other_reminders: ['meeting_summary', 'my_tasks', 'related_to_me', 'other_projects'],
+  other_projects:  ['meeting_summary', 'my_tasks', 'related_to_me', 'other_reminders'],
 }
 
 // ── Item helpers ───────────────────────────────────────────────────
@@ -82,12 +93,13 @@ const OTHER_SECTIONS: Record<SectionKey, SectionKey[]> = {
 function getMainText(item: AnyItem, section: SectionKey): string {
   if (section === 'meeting_summary') return (item as MeetingSummaryItem).title
   if (section === 'other_reminders') return (item as OtherReminder).item
+  if (section === 'other_projects')  return (item as OtherProject).item
   return (item as MyTask | RelatedTask).task
 }
 
 function getRisk(item: AnyItem, section: SectionKey): Risk {
   if (section === 'other_reminders') return (item as OtherReminder).importance
-  return (item as MeetingSummaryItem | MyTask | RelatedTask).risk_level
+  return (item as MeetingSummaryItem | MyTask | RelatedTask | OtherProject).risk_level
 }
 
 function convertItem(item: AnyItem, from: SectionKey, to: SectionKey): AnyItem {
@@ -97,16 +109,23 @@ function convertItem(item: AnyItem, from: SectionKey, to: SectionKey): AnyItem {
     from === 'meeting_summary' ? (item as MeetingSummaryItem).owner
     : from === 'related_to_me'  ? (item as RelatedTask).owner
     : from === 'other_reminders' ? (item as OtherReminder).person
+    : from === 'other_projects'  ? (item as OtherProject).owner
     : null
   const time =
     from === 'meeting_summary'  ? (item as MeetingSummaryItem).time
     : from === 'my_tasks'       ? (item as MyTask).completed_time
     : from === 'other_reminders' ? (item as OtherReminder).time
+    : from === 'other_projects'  ? (item as OtherProject).time
+    : null
+  const project =
+    from === 'my_tasks'      ? (item as MyTask).project
+    : from === 'other_projects' ? (item as OtherProject).project
     : null
 
   if (to === 'meeting_summary')  return { title: text, owner, time, risk_level: risk }
-  if (to === 'my_tasks')         return { project: null, task: text, progress: null, completed_time: time, next_milestone: null, blocker: null, need_help: null, risk_level: risk }
+  if (to === 'my_tasks')         return { project, task: text, progress: null, completed_time: time, next_milestone: null, blocker: null, need_help: null, risk_level: risk }
   if (to === 'related_to_me')    return { task: text, owner, time_range: null, my_part: null, risk_level: risk }
+  if (to === 'other_projects')   return { project, item: text, owner, time, risk_level: risk }
   return { item: text, person: owner, time, importance: risk }
 }
 
@@ -114,6 +133,7 @@ function emptyItem(section: SectionKey): AnyItem {
   if (section === 'meeting_summary')  return { title: '', owner: null, time: null, risk_level: 'low' }
   if (section === 'my_tasks')         return { project: null, task: '', progress: null, completed_time: null, next_milestone: null, blocker: null, need_help: null, risk_level: 'low' }
   if (section === 'related_to_me')    return { task: '', owner: null, time_range: null, my_part: null, risk_level: 'low' }
+  if (section === 'other_projects')   return { project: null, item: '', owner: null, time: null, risk_level: 'low' }
   return { item: '', person: null, time: null, importance: 'low' }
 }
 
@@ -207,6 +227,7 @@ function EditForm({ section, item, onSave, onCancel }: {
       {section === 'meeting_summary' && <>{T('事项：', 'title')}{T('负责人：', 'owner')}{T('时间：', 'time')}</>}
       {section === 'my_tasks' && <>{T('事项：', 'task')}{T('项目：', 'project')}{T('进度：', 'progress')}{T('完成时间：', 'completed_time')}{T('下一节点：', 'next_milestone')}{T('卡点：', 'blocker')}{T('需谁配合：', 'need_help')}</>}
       {section === 'related_to_me' && <>{T('事项：', 'task')}{T('负责人：', 'owner')}{T('时间区间：', 'time_range')}{T('我的职责：', 'my_part')}</>}
+      {section === 'other_projects' && <>{T('事项：', 'item')}{T('项目：', 'project')}{T('负责人：', 'owner')}{T('时间：', 'time')}</>}
       {section === 'other_reminders' && <>{T('事项：', 'item')}{T('相关人：', 'person')}{T('时间：', 'time')}</>}
       <div className="flex gap-2 items-center">
         <span className="text-xs text-gray-400 w-20 text-right flex-shrink-0">风险：</span>
@@ -354,7 +375,7 @@ function SectionMeetingSummary({ items, editState, handlers, onAdd }: {
 }) {
   return (
     <div>
-      {items.length === 0 && <Empty text="本次会议暂无全局大事记录" />}
+      {items.length === 0 && <Empty text="本次会议暂无全局制度或共性要求记录" />}
       <div className="space-y-2">
         {items.map((item, i) => (
           <EditableItem key={i} section="meeting_summary" index={i} item={item} editState={editState} handlers={handlers}>
@@ -485,6 +506,35 @@ function SectionOtherReminders({ items, editState, handlers, onAdd }: {
   )
 }
 
+function SectionOtherProjects({ items, editState, handlers, onAdd }: {
+  items: OtherProject[]
+  editState: EditState | null
+  handlers: ItemHandlers
+  onAdd: (item: AnyItem) => void
+}) {
+  return (
+    <div>
+      {items.length === 0 && <Empty text="本次会议中暂无其他项目动态" />}
+      <div className="space-y-2">
+        {items.map((item, i) => (
+          <EditableItem key={i} section="other_projects" index={i} item={item} editState={editState} handlers={handlers}>
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <p className="text-sm text-gray-800 leading-snug">{item.item}</p>
+              <Badge level={item.risk_level} />
+            </div>
+            <div className="space-y-0.5">
+              <F label="项目：" value={item.project} />
+              <F label="负责人：" value={item.owner} />
+              <F label="时间：" value={item.time} />
+            </div>
+          </EditableItem>
+        ))}
+      </div>
+      <AddItemRow section="other_projects" onAdd={onAdd} />
+    </div>
+  )
+}
+
 // ── Main component ─────────────────────────────────────────────────
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
@@ -496,6 +546,7 @@ export default function MeetingResult({ meeting }: { meeting: Meeting }) {
     my_tasks:        init.my_tasks        ?? [],
     related_to_me:   init.related_to_me   ?? [],
     other_reminders: init.other_reminders ?? [],
+    other_projects:  init.other_projects  ?? [],
     _failed:         init._failed,
   })
   const [editState, setEditState]   = useState<EditState | null>(null)
@@ -595,7 +646,7 @@ export default function MeetingResult({ meeting }: { meeting: Meeting }) {
         </button>
       </div>
 
-      <Card title="会议总结（全局）" icon={<Globe className="w-4 h-4" />}>
+      <Card title="会议总结（制度 / 共性要求）" icon={<Globe className="w-4 h-4" />}>
         <SectionMeetingSummary
           items={data.meeting_summary}
           editState={editState}
@@ -628,6 +679,15 @@ export default function MeetingResult({ meeting }: { meeting: Meeting }) {
           editState={editState}
           handlers={handlers}
           onAdd={item => addItem('other_reminders', item)}
+        />
+      </Card>
+
+      <Card title="其他项目动态" icon={<Building2 className="w-4 h-4" />}>
+        <SectionOtherProjects
+          items={data.other_projects}
+          editState={editState}
+          handlers={handlers}
+          onAdd={item => addItem('other_projects', item)}
         />
       </Card>
     </div>
