@@ -1,71 +1,278 @@
 import Link from 'next/link'
+import { AlertCircle, CheckCircle2, Clock } from 'lucide-react'
 import { createClient } from '@/utils/supabase/server'
 import Sidebar from '@/components/sidebar'
+import TagFilter from '@/components/tag-filter'
 
-export default async function DashboardPage() {
+type Risk = 'low' | 'medium' | 'high'
+
+interface MyTask {
+  project: string | null
+  task: string
+  owner: string | null
+  next_milestone: string | null
+  blocker: string | null
+  risk_level: Risk
+  meetingId: string
+  meetingTitle: string
+  meetingDate: string
+}
+
+interface ReminderItem {
+  text: string
+  person: string | null
+  time: string | null
+  risk_level: Risk
+  meetingId: string
+  meetingTitle: string
+}
+
+const RISK_COLOR: Record<Risk, string> = {
+  high:   'text-[#FF4D4F] bg-[#FF4D4F]/10',
+  medium: 'text-orange-500 bg-orange-50',
+  low:    'text-gray-400 bg-gray-100',
+}
+const RISK_LABEL: Record<Risk, string> = { high: '高风险', medium: '中风险', low: '低风险' }
+const RISK_ORDER: Record<Risk, number> = { high: 0, medium: 1, low: 2 }
+
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tag?: string }>
+}) {
+  const { tag: rawTag } = await searchParams
+  const activeTag = rawTag || '全部'
+
   const supabase = await createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const { data: meetings } = await supabase
+  // All tags for filter
+  const { data: tagRows } = await supabase
     .from('meetings')
-    .select('id, title, tag, meeting_date, summary')
+    .select('tag')
     .order('created_at', { ascending: false })
-    .limit(5)
+
+  const allTags = [
+    '全部',
+    ...Array.from(new Set((tagRows ?? []).map((r) => r.tag).filter(Boolean))),
+  ]
+
+  // Meetings (filtered by tag)
+  let query = supabase
+    .from('meetings')
+    .select('id, title, tag, meeting_date, summary, structured')
+    .order('meeting_date', { ascending: false })
+    .limit(30)
+
+  if (activeTag !== '全部') query = query.eq('tag', activeTag)
+
+  const { data: meetings } = await query
+
+  // Aggregate from structured
+  const myTasks: MyTask[] = []
+  const reminders: ReminderItem[] = []
+
+  for (const m of meetings ?? []) {
+    const s = m.structured as Record<string, unknown> | null
+    if (!s) continue
+
+    for (const t of (s.my_tasks as MyTask[] | undefined) ?? []) {
+      myTasks.push({ ...t, meetingId: m.id, meetingTitle: m.title, meetingDate: m.meeting_date })
+    }
+
+    for (const t of (s.meeting_summary as { title: string; owner: string | null; time: string | null; risk_level: Risk }[] | undefined) ?? []) {
+      if (t.risk_level === 'high') {
+        reminders.push({
+          text: t.title, person: t.owner, time: t.time,
+          risk_level: 'high', meetingId: m.id, meetingTitle: m.title,
+        })
+      }
+    }
+
+    for (const r of (s.other_reminders as { item: string; person: string | null; time: string | null; importance: Risk }[] | undefined) ?? []) {
+      reminders.push({
+        text: r.item, person: r.person, time: r.time,
+        risk_level: r.importance, meetingId: m.id, meetingTitle: m.title,
+      })
+    }
+  }
+
+  myTasks.sort((a, b) => RISK_ORDER[a.risk_level] - RISK_ORDER[b.risk_level])
+  reminders.sort((a, b) => RISK_ORDER[a.risk_level] - RISK_ORDER[b.risk_level])
+
+  const recentMeetings = (meetings ?? []).slice(0, 5)
+  const isEmpty = (meetings ?? []).length === 0
 
   return (
     <div className="flex min-h-screen bg-[#F7F8FA]">
       <Sidebar userEmail={user!.email!} />
       <main className="flex-1 px-8 py-8">
-        <div className="max-w-3xl mx-auto">
-          <h1 className="text-xl font-semibold text-gray-900 mb-6">最近会议</h1>
+        <div className="max-w-5xl mx-auto space-y-5">
+          <h1 className="text-xl font-semibold text-gray-900">Dashboard</h1>
 
-          {meetings && meetings.length > 0 ? (
-            <div className="space-y-3">
-              {meetings.map((m) => (
-                <Link
-                  key={m.id}
-                  href={`/meetings/${m.id}`}
-                  className="flex items-start justify-between gap-4 bg-white rounded-2xl
-                             border border-gray-100 px-5 py-4 hover:border-[#3370FF]/30
-                             hover:shadow-sm transition-all"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">
-                      {m.title || '未命名会议'}
-                    </p>
-                    {m.summary && (
-                      <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">
-                        {m.summary}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-[#3370FF]/10 text-[#3370FF]">
-                      {m.tag}
-                    </span>
-                    <span className="text-xs text-gray-400 tabular-nums">
-                      {m.meeting_date}
-                    </span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <div className="bg-white rounded-2xl border border-gray-100 px-8 py-16 text-center">
-              <p className="text-sm text-gray-400 mb-4">还没有会议记录</p>
+          <TagFilter tags={allTags} active={activeTag} />
+
+          {/* Stats */}
+          <div className="grid grid-cols-3 gap-4">
+            <StatCard label="待办事项" value={myTasks.length} />
+            <StatCard
+              label="高风险"
+              value={myTasks.filter((t) => t.risk_level === 'high').length}
+              valueClass="text-[#FF4D4F]"
+            />
+            <StatCard label="会议数" value={(meetings ?? []).length} />
+          </div>
+
+          {isEmpty ? (
+            <div className="bg-white rounded-2xl border border-gray-100 px-8 py-20 text-center">
+              <p className="text-sm text-gray-400 mb-4">暂无数据，上传第一条会议记录吧</p>
               <Link
                 href="/upload"
                 className="inline-flex items-center px-4 py-2 rounded-xl bg-[#3370FF]
                            text-white text-sm font-medium hover:bg-[#2860EE] transition-colors"
               >
-                上传第一条会议
+                去上传会议
               </Link>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* My Tasks */}
+              <div className="bg-white rounded-2xl border border-gray-100 p-5">
+                <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-[#3370FF]" />
+                  我的待办
+                  <span className="ml-auto text-xs font-normal text-gray-400">{myTasks.length} 条</span>
+                </h2>
+                {myTasks.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-6 text-center">暂无待办</p>
+                ) : (
+                  <div className="space-y-2.5 max-h-[480px] overflow-y-auto pr-1">
+                    {myTasks.map((t, i) => (
+                      <Link key={i} href={`/meetings/${t.meetingId}`} className="block group">
+                        <div className="rounded-xl border border-gray-100 px-4 py-3 hover:border-[#3370FF]/30 hover:bg-[#3370FF]/5 transition-all">
+                          <div className="flex items-start gap-2">
+                            <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded-md font-medium mt-0.5 ${RISK_COLOR[t.risk_level]}`}>
+                              {RISK_LABEL[t.risk_level]}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-gray-800 leading-snug">{t.task}</p>
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 text-xs text-gray-400">
+                                {t.project && <span>{t.project}</span>}
+                                {t.owner && <span>· {t.owner}</span>}
+                                {t.next_milestone && (
+                                  <span className="flex items-center gap-1">
+                                    <Clock className="w-3 h-3" />
+                                    {t.next_milestone}
+                                  </span>
+                                )}
+                              </div>
+                              {t.blocker && (
+                                <p className="mt-1 text-xs text-[#FF4D4F] flex items-center gap-1">
+                                  <AlertCircle className="w-3 h-3 flex-shrink-0" />
+                                  {t.blocker}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <p className="mt-1.5 text-[10px] text-gray-300 group-hover:text-gray-400 truncate">
+                            {t.meetingTitle} · {t.meetingDate}
+                          </p>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Right column */}
+              <div className="space-y-5">
+                {/* Reminders / Risks */}
+                <div className="bg-white rounded-2xl border border-gray-100 p-5">
+                  <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-[#FF4D4F]" />
+                    提醒 &amp; 风险
+                    <span className="ml-auto text-xs font-normal text-gray-400">{reminders.length} 条</span>
+                  </h2>
+                  {reminders.length === 0 ? (
+                    <p className="text-xs text-gray-400 py-4 text-center">暂无提醒</p>
+                  ) : (
+                    <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                      {reminders.slice(0, 10).map((r, i) => (
+                        <Link key={i} href={`/meetings/${r.meetingId}`} className="block group">
+                          <div
+                            className={`rounded-xl px-3 py-2.5 transition-all hover:border-[#3370FF]/30 ${
+                              r.risk_level === 'high'
+                                ? 'bg-[#FF4D4F]/5 border border-[#FF4D4F]/20'
+                                : 'border border-gray-100'
+                            }`}
+                          >
+                            <p className="text-sm text-gray-800 leading-snug">{r.text}</p>
+                            <div className="flex items-center gap-2 mt-0.5 text-xs text-gray-400">
+                              {r.person && <span>{r.person}</span>}
+                              {r.time && <span>· {r.time}</span>}
+                              <span className="ml-auto text-[10px] truncate group-hover:text-gray-500">
+                                {r.meetingTitle}
+                              </span>
+                            </div>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Recent meetings */}
+                <div className="bg-white rounded-2xl border border-gray-100 p-5">
+                  <h2 className="text-sm font-semibold text-gray-700 mb-4">最近会议</h2>
+                  <div className="space-y-3">
+                    {recentMeetings.map((m) => (
+                      <Link
+                        key={m.id}
+                        href={`/meetings/${m.id}`}
+                        className="flex items-start justify-between gap-3 group"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-800 truncate group-hover:text-[#3370FF] transition-colors">
+                            {m.title || '未命名会议'}
+                          </p>
+                          {m.summary && (
+                            <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{m.summary}</p>
+                          )}
+                        </div>
+                        <div className="flex-shrink-0 text-right">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#3370FF]/10 text-[#3370FF] block mb-0.5">
+                            {m.tag}
+                          </span>
+                          <span className="text-[10px] text-gray-400 tabular-nums">{m.meeting_date}</span>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>
       </main>
+    </div>
+  )
+}
+
+function StatCard({
+  label,
+  value,
+  valueClass = 'text-gray-900',
+}: {
+  label: string
+  value: number
+  valueClass?: string
+}) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 px-5 py-4">
+      <p className="text-xs text-gray-400 mb-1">{label}</p>
+      <p className={`text-2xl font-semibold ${valueClass}`}>{value}</p>
     </div>
   )
 }
