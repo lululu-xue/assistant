@@ -1,6 +1,7 @@
 'use server'
 
 import { redirect } from 'next/navigation'
+import mammoth from 'mammoth'
 import { createClient } from '@/utils/supabase/server'
 import { analyzeMeeting } from '@/lib/ai/analyzeMeeting'
 
@@ -30,7 +31,6 @@ export async function uploadMeeting(
   if (file && file.size > 0) {
     const fileName = file.name.toLowerCase()
     if (fileName.endsWith('.docx')) {
-      const mammoth = await import('mammoth')
       const buffer = Buffer.from(await file.arrayBuffer())
       const { value } = await mammoth.extractRawText({ buffer })
       content = value
