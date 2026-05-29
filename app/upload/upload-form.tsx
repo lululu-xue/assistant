@@ -63,6 +63,10 @@ export default function UploadForm({
     if (isNewTag) {
       formData.set('tag', newTagValue.trim() || '未分类')
     }
+    // 拖拽上传的文件不在 input 元素里，需要手动写入 FormData
+    if (file) {
+      formData.set('file', file)
+    }
     startTransition(async () => {
       const result = await uploadMeeting(formData)
       if (result?.error) setError(result.error)

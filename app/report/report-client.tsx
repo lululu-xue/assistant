@@ -159,6 +159,11 @@ export default function ReportClient({
       {/* Main */}
       <div className="flex-1 min-w-0 space-y-4">
 
+        {/* Hint */}
+        <p className="text-xs text-gray-400">
+          建议先在 Dashboard 更新本周待办进展，再生成汇报效果更好
+        </p>
+
         {/* Generate bar */}
         <div className="bg-white rounded-2xl border border-gray-100 px-5 py-4">
           <div className="flex items-center gap-3 flex-wrap">

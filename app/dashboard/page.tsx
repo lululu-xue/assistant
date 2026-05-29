@@ -1,21 +1,22 @@
 import Link from 'next/link'
-import { AlertCircle, CheckCircle2, Clock } from 'lucide-react'
+import { AlertCircle, CheckCircle2 } from 'lucide-react'
 import { createClient } from '@/utils/supabase/server'
 import Sidebar from '@/components/sidebar'
 import TagFilter from '@/components/tag-filter'
+import MeetingsList from './meetings-list'
+import TodosList, { type TodoItem, type ThreadInfo } from './todos-list'
 
 type Risk = 'low' | 'medium' | 'high'
 
 interface MyTask {
-  project: string | null
-  task: string
-  owner: string | null
+  project:        string | null
+  task:           string
+  owner:          string | null
   next_milestone: string | null
-  blocker: string | null
-  risk_level: Risk
-  meetingId: string
-  meetingTitle: string
-  meetingDate: string
+  blocker:        string | null
+  risk_level:     Risk
+  status?:        string
+  thread_id?:     string | null
 }
 
 interface ReminderItem {
@@ -70,17 +71,40 @@ export default async function DashboardPage({
 
   const { data: meetings } = await query
 
+  // Threads (all for user, filter client-side in modal)
+  const { data: threadRows } = await supabase
+    .from('threads')
+    .select('id, title, tag')
+    .order('created_at', { ascending: false })
+  const allThreads: ThreadInfo[] = threadRows ?? []
+
   // Aggregate from structured
-  const myTasks: MyTask[] = []
+  const todoItems: TodoItem[] = []
   const reminders: ReminderItem[] = []
 
   for (const m of meetings ?? []) {
     const s = m.structured as Record<string, unknown> | null
     if (!s) continue
 
-    for (const t of (s.my_tasks as MyTask[] | undefined) ?? []) {
-      myTasks.push({ ...t, meetingId: m.id, meetingTitle: m.title, meetingDate: m.meeting_date })
-    }
+    const rawTasks = (s.my_tasks as MyTask[] | undefined) ?? []
+    rawTasks.forEach((t, idx) => {
+      if ((t as unknown as Record<string, unknown>).archived === true) return
+      todoItems.push({
+        index:          idx,
+        project:        t.project ?? null,
+        task:           t.task,
+        owner:          t.owner ?? null,
+        next_milestone: t.next_milestone ?? null,
+        blocker:        t.blocker ?? null,
+        risk_level:     t.risk_level,
+        status:         (t.status as TodoItem['status']) ?? 'open',
+        thread_id:      (t.thread_id as string | null) ?? null,
+        tag:            m.tag,
+        meetingId:      m.id,
+        meetingTitle:   m.title,
+        meetingDate:    m.meeting_date,
+      })
+    })
 
     for (const t of (s.meeting_summary as { title: string; owner: string | null; time: string | null; risk_level: Risk }[] | undefined) ?? []) {
       if (t.risk_level === 'high') {
@@ -99,7 +123,7 @@ export default async function DashboardPage({
     }
   }
 
-  myTasks.sort((a, b) => RISK_ORDER[a.risk_level] - RISK_ORDER[b.risk_level])
+  todoItems.sort((a, b) => RISK_ORDER[a.risk_level] - RISK_ORDER[b.risk_level])
   reminders.sort((a, b) => RISK_ORDER[a.risk_level] - RISK_ORDER[b.risk_level])
 
   const recentMeetings = (meetings ?? []).slice(0, 5)
@@ -116,10 +140,10 @@ export default async function DashboardPage({
 
           {/* Stats */}
           <div className="grid grid-cols-3 gap-4">
-            <StatCard label="待办事项" value={myTasks.length} />
+            <StatCard label="待办事项" value={todoItems.length} />
             <StatCard
               label="高风险"
-              value={myTasks.filter((t) => t.risk_level === 'high').length}
+              value={todoItems.filter((t) => t.risk_level === 'high').length}
               valueClass="text-[#FF4D4F]"
             />
             <StatCard label="会议数" value={(meetings ?? []).length} />
@@ -143,47 +167,9 @@ export default async function DashboardPage({
                 <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-[#3370FF]" />
                   我的待办
-                  <span className="ml-auto text-xs font-normal text-gray-400">{myTasks.length} 条</span>
+                  <span className="ml-auto text-xs font-normal text-gray-400">{todoItems.length} 条</span>
                 </h2>
-                {myTasks.length === 0 ? (
-                  <p className="text-xs text-gray-400 py-6 text-center">暂无待办</p>
-                ) : (
-                  <div className="space-y-2.5 max-h-[480px] overflow-y-auto pr-1">
-                    {myTasks.map((t, i) => (
-                      <Link key={i} href={`/meetings/${t.meetingId}`} className="block group">
-                        <div className="rounded-xl border border-gray-100 px-4 py-3 hover:border-[#3370FF]/30 hover:bg-[#3370FF]/5 transition-all">
-                          <div className="flex items-start gap-2">
-                            <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded-md font-medium mt-0.5 ${RISK_COLOR[t.risk_level]}`}>
-                              {RISK_LABEL[t.risk_level]}
-                            </span>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm text-gray-800 leading-snug">{t.task}</p>
-                              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 text-xs text-gray-400">
-                                {t.project && <span>{t.project}</span>}
-                                {t.owner && <span>· {t.owner}</span>}
-                                {t.next_milestone && (
-                                  <span className="flex items-center gap-1">
-                                    <Clock className="w-3 h-3" />
-                                    {t.next_milestone}
-                                  </span>
-                                )}
-                              </div>
-                              {t.blocker && (
-                                <p className="mt-1 text-xs text-[#FF4D4F] flex items-center gap-1">
-                                  <AlertCircle className="w-3 h-3 flex-shrink-0" />
-                                  {t.blocker}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                          <p className="mt-1.5 text-[10px] text-gray-300 group-hover:text-gray-400 truncate">
-                            {t.meetingTitle} · {t.meetingDate}
-                          </p>
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-                )}
+                <TodosList initialTasks={todoItems} initialThreads={allThreads} />
               </div>
 
               {/* Right column */}
@@ -226,30 +212,7 @@ export default async function DashboardPage({
                 {/* Recent meetings */}
                 <div className="bg-white rounded-2xl border border-gray-100 p-5">
                   <h2 className="text-sm font-semibold text-gray-700 mb-4">最近会议</h2>
-                  <div className="space-y-3">
-                    {recentMeetings.map((m) => (
-                      <Link
-                        key={m.id}
-                        href={`/meetings/${m.id}`}
-                        className="flex items-start justify-between gap-3 group"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-gray-800 truncate group-hover:text-[#3370FF] transition-colors">
-                            {m.title || '未命名会议'}
-                          </p>
-                          {m.summary && (
-                            <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{m.summary}</p>
-                          )}
-                        </div>
-                        <div className="flex-shrink-0 text-right">
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#3370FF]/10 text-[#3370FF] block mb-0.5">
-                            {m.tag}
-                          </span>
-                          <span className="text-[10px] text-gray-400 tabular-nums">{m.meeting_date}</span>
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
+                  <MeetingsList meetings={recentMeetings} />
                 </div>
               </div>
             </div>

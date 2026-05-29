@@ -2,13 +2,14 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Upload, FileText, LogOut } from 'lucide-react'
+import { LayoutDashboard, Upload, FileText, Archive, LogOut } from 'lucide-react'
 import { logout } from '@/app/actions/auth'
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/upload',    label: '上传会议',   icon: Upload },
   { href: '/report',   label: '会前汇报',   icon: FileText },
+  { href: '/archive',  label: '归档记录',   icon: Archive },
 ]
 
 export default function Sidebar({ userEmail }: { userEmail: string }) {

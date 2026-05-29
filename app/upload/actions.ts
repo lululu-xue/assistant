@@ -31,7 +31,8 @@ export async function uploadMeeting(
   if (file && file.size > 0) {
     const fileName = file.name.toLowerCase()
     if (fileName.endsWith('.docx')) {
-      const buffer = Buffer.from(await file.arrayBuffer())
+      const arrayBuffer = await file.arrayBuffer()
+      const buffer = Buffer.from(arrayBuffer)
       const { value } = await mammoth.extractRawText({ buffer })
       content = value
     } else {
@@ -77,6 +78,7 @@ export async function uploadMeeting(
         my_tasks:        result.my_tasks,
         related_to_me:   result.related_to_me,
         other_reminders: result.other_reminders,
+        other_projects:  result.other_projects,
         ...(result._failed ? { _failed: true } : {}),
       },
     })

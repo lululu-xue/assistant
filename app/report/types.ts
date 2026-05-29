@@ -1,9 +1,9 @@
 export interface ReportStructured {
-  weekly_progress: string[]
-  current_risks:   string[]
-  blockers:        string[]
-  suggested_sync:  string[]
-  next_plan:       string[]
+  done_items:        string[]
+  in_progress_items: string[]
+  blocked_items:     string[]
+  open_items:        string[]
+  next_plan:         string[]
 }
 
 export type Report = {
@@ -16,17 +16,17 @@ export type Report = {
 }
 
 export const SECTION_LABELS: Record<keyof ReportStructured, string> = {
-  weekly_progress: '本周进展',
-  current_risks:   '当前风险',
-  blockers:        '卡点',
-  suggested_sync:  '建议同步',
-  next_plan:       '下周计划',
+  done_items:        '已完成',
+  in_progress_items: '进行中',
+  blocked_items:     '受阻碍',
+  open_items:        '待处理',
+  next_plan:         '下步计划',
 }
 
 export const SECTION_COLORS: Record<keyof ReportStructured, string> = {
-  weekly_progress: 'border-l-[#3370FF]',
-  current_risks:   'border-l-[#FF4D4F]',
-  blockers:        'border-l-orange-400',
-  suggested_sync:  'border-l-[#52C41A]',
-  next_plan:       'border-l-purple-400',
+  done_items:        'border-l-[#52C41A]',
+  in_progress_items: 'border-l-[#3370FF]',
+  blocked_items:     'border-l-orange-400',
+  open_items:        'border-l-gray-300',
+  next_plan:         'border-l-purple-400',
 }
