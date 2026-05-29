@@ -94,6 +94,15 @@ export async function archiveThread(threadId: string): Promise<boolean> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return false
 
+  // Fetch thread title before deleting
+  const { data: thread } = await supabase
+    .from('threads')
+    .select('title')
+    .eq('id', threadId)
+    .eq('user_id', user.id)
+    .single()
+  const threadTitle = thread?.title ?? ''
+
   const { data: meetings } = await supabase
     .from('meetings')
     .select('id, structured')
@@ -113,7 +122,7 @@ export async function archiveThread(threadId: string): Promise<boolean> {
           ...s,
           my_tasks: tasks.map((t) =>
             t.thread_id === threadId
-              ? { ...t, archived: true, archived_at: now }
+              ? { ...t, archived: true, archived_at: now, thread_title: threadTitle }
               : t,
           ),
         },

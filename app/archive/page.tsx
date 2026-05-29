@@ -1,7 +1,7 @@
 import { createClient } from '@/utils/supabase/server'
 import Sidebar from '@/components/sidebar'
 import TagFilter from '@/components/tag-filter'
-import ArchiveClient, { type ArchivedTask } from './archive-client'
+import ArchiveClient, { type ArchivedTask, type ThreadGroup } from './archive-client'
 
 export default async function ArchivePage({
   searchParams,
@@ -31,14 +31,15 @@ export default async function ArchivePage({
   if (activeTag !== '全部') query = query.eq('tag', activeTag)
   const { data: meetings } = await query
 
-  const archivedTasks: ArchivedTask[] = []
+  // Collect all archived tasks
+  const allArchived: ArchivedTask[] = []
   for (const m of meetings ?? []) {
     const s = m.structured as Record<string, unknown> | null
     if (!s) continue
     const tasks = (s.my_tasks as Record<string, unknown>[] | undefined) ?? []
     tasks.forEach((t, idx) => {
       if (t.archived !== true) return
-      archivedTasks.push({
+      allArchived.push({
         index:        idx,
         task:         String(t.task ?? ''),
         owner:        t.owner ? String(t.owner) : null,
@@ -47,11 +48,43 @@ export default async function ArchivePage({
         meetingDate:  m.meeting_date,
         tag:          m.tag,
         archivedAt:   t.archived_at ? String(t.archived_at) : null,
+        threadId:     t.thread_id ? String(t.thread_id) : null,
+        threadTitle:  t.thread_title ? String(t.thread_title) : null,
       })
     })
   }
 
-  archivedTasks.sort((a, b) => {
+  // Split into threaded and independent
+  const threadMap = new Map<string, ArchivedTask[]>()
+  const independentTasks: ArchivedTask[] = []
+
+  for (const t of allArchived) {
+    if (t.threadId) {
+      if (!threadMap.has(t.threadId)) threadMap.set(t.threadId, [])
+      threadMap.get(t.threadId)!.push(t)
+    } else {
+      independentTasks.push(t)
+    }
+  }
+
+  // Build thread groups sorted by most recent archivedAt
+  const threadGroups: ThreadGroup[] = [...threadMap.entries()].map(([threadId, tasks]) => {
+    const latestAt = tasks
+      .map((t) => t.archivedAt)
+      .filter(Boolean)
+      .sort()
+      .reverse()[0] ?? null
+    const title = tasks.find((t) => t.threadTitle)?.threadTitle ?? '未命名线索'
+    return { threadId, threadTitle: title, archivedAt: latestAt, tasks }
+  })
+  threadGroups.sort((a, b) => {
+    if (!a.archivedAt) return 1
+    if (!b.archivedAt) return -1
+    return b.archivedAt.localeCompare(a.archivedAt)
+  })
+
+  // Independent sorted by archivedAt desc
+  independentTasks.sort((a, b) => {
     if (!a.archivedAt) return 1
     if (!b.archivedAt) return -1
     return b.archivedAt.localeCompare(a.archivedAt)
@@ -64,7 +97,7 @@ export default async function ArchivePage({
         <div className="max-w-3xl mx-auto space-y-5">
           <h1 className="text-xl font-semibold text-gray-900">归档记录</h1>
           <TagFilter tags={allTags} active={activeTag} />
-          <ArchiveClient tasks={archivedTasks} />
+          <ArchiveClient threadGroups={threadGroups} independentTasks={independentTasks} />
         </div>
       </main>
     </div>
