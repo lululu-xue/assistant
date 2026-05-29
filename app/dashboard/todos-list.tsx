@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import {
   updateMyTaskStatus, archiveMyTask,
-  createThread, assignToThread, dissolveThread,
+  createThread, assignToThread, dissolveThread, archiveThread,
   type TodoStatus,
 } from './actions'
 
@@ -237,6 +237,16 @@ export default function TodosList({
     closeModal()
   }
 
+  // ── Archive thread ──
+  async function handleArchiveThread(threadId: string) {
+    setOpenMenu(null)
+    if (!window.confirm('确认归档该线索？线索下所有事项将一并归档')) return
+    const ok = await archiveThread(threadId)
+    if (!ok) { showError('归档失败，请重试'); return }
+    setTasks((prev) => prev.filter((t) => t.thread_id !== threadId))
+    setThreads((prev) => prev.filter((t) => t.id !== threadId))
+  }
+
   // ── Dissolve ──
   async function handleDissolve(threadId: string) {
     setOpenMenu(null)
@@ -322,6 +332,12 @@ export default function TodosList({
                   </button>
                   {openMenu === threadId && (
                     <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1 w-28">
+                      <button
+                        onClick={() => handleArchiveThread(threadId)}
+                        className="w-full text-left px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+                      >
+                        归档线索
+                      </button>
                       <button
                         onClick={() => handleDissolve(threadId)}
                         className="w-full text-left px-3 py-1.5 text-xs text-[#FF4D4F] hover:bg-gray-50"

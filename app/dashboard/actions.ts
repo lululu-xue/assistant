@@ -89,6 +89,47 @@ export async function assignToThread(
   return readModifyWriteTask(taskMeetingId, taskIndex, { thread_id: threadId })
 }
 
+export async function archiveThread(threadId: string): Promise<boolean> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return false
+
+  const { data: meetings } = await supabase
+    .from('meetings')
+    .select('id, structured')
+    .eq('user_id', user.id)
+
+  const now = new Date().toISOString()
+  for (const m of meetings ?? []) {
+    const s = m.structured as Record<string, unknown> | null
+    if (!s) continue
+    const tasks = s.my_tasks as Record<string, unknown>[] | undefined
+    if (!tasks?.some((t) => t.thread_id === threadId)) continue
+
+    await supabase
+      .from('meetings')
+      .update({
+        structured: {
+          ...s,
+          my_tasks: tasks.map((t) =>
+            t.thread_id === threadId
+              ? { ...t, archived: true, archived_at: now }
+              : t,
+          ),
+        },
+      })
+      .eq('id', m.id)
+      .eq('user_id', user.id)
+  }
+
+  const { error } = await supabase
+    .from('threads')
+    .delete()
+    .eq('id', threadId)
+    .eq('user_id', user.id)
+  return !error
+}
+
 export async function dissolveThread(threadId: string): Promise<boolean> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

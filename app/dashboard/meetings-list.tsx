@@ -40,7 +40,7 @@ export default function MeetingsList({ meetings }: { meetings: Meeting[] }) {
         {meetings.map((m) => (
           <div key={m.id} className="group flex items-start gap-2">
             <Link href={`/meetings/${m.id}`} className="flex-1 min-w-0">
-              <p className="text-sm text-gray-800 truncate group-hover:text-[#3370FF] transition-colors">
+              <p className="text-sm text-gray-800 line-clamp-2 group-hover:text-[#3370FF] transition-colors">
                 {m.title || '未命名会议'}
               </p>
               {m.summary && (
