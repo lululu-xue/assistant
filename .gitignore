@@ -25,3 +25,5 @@ supabase项目密码.txt
 *.log
 .idea/
 .vscode/
+.vercel
+.env*
